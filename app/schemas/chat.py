@@ -27,6 +27,9 @@ class Usage(BaseModel):
     input_tokens: int
     output_tokens: int
     cost_usd: float
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
 
 
 class EvalResult(BaseModel):
@@ -35,7 +38,18 @@ class EvalResult(BaseModel):
     score: float
 
 
+class ChatChoice(BaseModel):
+    index: int = 0
+    message: ChatMessage
+    finish_reason: str = "stop"
+
+
 class ChatCompletionResponse(BaseModel):
+    id: str
+    object: str = "chat.completion"
+    created: int
+    model: str
+    choices: list[ChatChoice]
     request_id: str
     model_used: str
     fallback_used: bool

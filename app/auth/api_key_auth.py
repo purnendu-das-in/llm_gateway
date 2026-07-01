@@ -11,12 +11,16 @@ DEMO_TENANTS = {
     "demo-key-acme": TenantContext(
         tenant_id="acme-insurance",
         name="Acme Insurance",
-        allowed_models=["mock-fast", "mock-quality"],
+        allowed_models=["mock-fast", "mock-quality", "mock-long-context"],
+        rpm_limit=120,
+        tpm_limit=50_000,
     ),
     "demo-key-globex": TenantContext(
         tenant_id="globex-finance",
         name="Globex Finance",
         allowed_models=["mock-fast"],
+        rpm_limit=30,
+        tpm_limit=5_000,
     ),
 }
 

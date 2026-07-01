@@ -1,4 +1,4 @@
-from app.providers.base import LLMProvider, ProviderResponse
+from app.providers.base import LLMProvider, ProviderError, ProviderResponse
 from app.schemas.chat import ChatCompletionRequest
 
 
@@ -7,6 +7,10 @@ class MockProvider(LLMProvider):
         self.model_name = model_name
 
     def complete(self, request: ChatCompletionRequest, sanitized_prompt: str) -> ProviderResponse:
+        simulated_failures = request.metadata.get("simulate_provider_error_for", [])
+        if self.model_name in simulated_failures:
+            raise ProviderError(f"Simulated upstream failure for {self.model_name}")
+
         task = request.task_type or "general"
         if task == "document_extraction":
             content = '{"status":"ok","summary":"Mock extraction completed."}'

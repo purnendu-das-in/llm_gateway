@@ -1,40 +1,54 @@
 # llm_gateway
 
-A production-style AI gateway for enterprise GenAI applications.
+A production-style LLM gateway for enterprise GenAI applications: multi-tenant auth,
+token-aware rate limiting, PII masking, model routing, fallback resilience, usage tracking,
+and Prometheus-compatible metrics.
 
-`llm_gateway` demonstrates how to build a secure, multi-tenant, cost-aware, and observable gateway between client applications and multiple LLM providers. The first version runs entirely locally with a mock provider so the API, tests, and demo flow work without paid credentials.
+```mermaid
+flowchart LR
+    Client[Client Application] --> Auth[Auth + Tenant Context]
+    Auth --> Limits[Token-Aware RPM/TPM Limiter]
+    Limits --> Guardrails[Prompt Validation + PII Masking]
+    Guardrails --> Router[Semantic Router + Context Window Check]
+    Router --> Circuit[Circuit Breaker + Fallback Matrix]
+    Circuit --> ProviderA[Primary LLM Provider]
+    Circuit --> ProviderB[Fallback LLM Provider]
+    ProviderA --> Metrics[Usage, Audit, Metrics]
+    ProviderB --> Metrics
+    Metrics --> Client
+```
 
-## Why This Project?
+## What This Demonstrates
 
-Most GenAI applications start by calling an LLM provider directly. That works for prototypes, but production systems need:
+- OpenAI-compatible `POST /v1/chat/completions` API shape
+- Multi-tenant API key authentication
+- Token-per-minute and request-per-minute enforcement by tenant
+- Prompt injection validation and PII masking before provider calls
+- Semantic routing for simple, reasoning, coding, and long-context workloads
+- Context-window protection with long-context fallback routing
+- Circuit-breaker fallback when an upstream model fails
+- Usage, cost, latency, audit, and fallback tracking
+- Prometheus text metrics at `GET /metrics`
+- One-command local environment with gateway, Redis, and Prometheus
 
-- Tenant-level budgets
-- Model routing
-- Prompt validation
-- PII masking
-- Retries and fallbacks
-- Audit logs
-- Evals
-- Cost and latency dashboards
+The current providers are deterministic mocks, so the full API and test suite run without paid
+LLM credentials. The provider boundary is intentionally small so OpenAI, Bedrock, Anthropic,
+Gemini, or an internal inference endpoint can be added behind the same gateway contract.
 
-This repo is structured to grow into that gateway layer while keeping the first milestone small and runnable.
+## One-Command Local Spin-Up
 
-## Current Features
+```powershell
+docker compose up --build
+```
 
-- FastAPI backend
-- `POST /v1/chat/completions`
-- `GET /health`
-- `GET /v1/models`
-- `GET /v1/tenant/usage`
-- API key authentication with demo tenant lookup
-- OpenAI-compatible request shape
-- Mock LLM provider
-- Prompt validation for empty and risky prompts
-- PII masking for emails, phone numbers, credit-card-like numbers, PAN-like IDs, and Aadhaar-like IDs
-- Basic usage and audit logging in memory
-- Pytest coverage for the gateway path
+Then open:
 
-## Local Setup
+- API docs: `http://127.0.0.1:8000/docs`
+- Gateway health: `http://127.0.0.1:8000/health`
+- Metrics: `http://127.0.0.1:8000/metrics`
+- Prometheus: `http://127.0.0.1:9090`
+
+## Local Python Setup
 
 ```powershell
 python -m venv .venv
@@ -43,9 +57,30 @@ pip install -e ".[dev]"
 uvicorn app.main:app --reload
 ```
 
-Open the API docs at `http://127.0.0.1:8000/docs`.
+## Drop-In OpenAI SDK Demo
 
-## Example Request
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="http://localhost:8000/v1",
+    api_key="demo-key-acme",
+)
+
+response = client.chat.completions.create(
+    model="auto",
+    messages=[
+        {
+            "role": "user",
+            "content": "Summarize this renewal email: rahul@example.com needs a call.",
+        }
+    ],
+)
+
+print(response)
+```
+
+## PowerShell Request
 
 ```powershell
 $body = @{
@@ -73,33 +108,39 @@ Invoke-RestMethod `
 
 ## Demo API Keys
 
-| Tenant | API key |
-| --- | --- |
-| Acme Insurance | `demo-key-acme` |
-| Globex Finance | `demo-key-globex` |
+| Tenant | API key | Models | Limits |
+| --- | --- | --- | --- |
+| Acme Insurance | `demo-key-acme` | `mock-fast`, `mock-quality`, `mock-long-context` | 120 RPM / 50k TPM |
+| Globex Finance | `demo-key-globex` | `mock-fast` | 30 RPM / 5k TPM |
+
+## Resilience Demo
+
+The mock provider can simulate an upstream outage so the fallback lane is easy to test:
+
+```json
+{
+  "model": "mock-fast",
+  "messages": [{"role": "user", "content": "Summarize this renewal note."}],
+  "metadata": {
+    "simulate_provider_error_for": ["mock-fast"]
+  }
+}
+```
+
+The gateway records the failure, trips the circuit after repeated errors, and serves the request
+from the next healthy model allowed for the tenant.
 
 ## Tests
 
 ```powershell
-pytest
+python -m pytest
+python -m ruff check .
 ```
-
-## What This Project Demonstrates
-
-- Production GenAI architecture
-- FastAPI backend development
-- Multi-tenant SaaS design
-- Prompt security and PII masking
-- LLM routing foundation
-- Audit and usage tracking
-- Testable API design
 
 ## Roadmap
 
-1. Persistent Postgres storage with SQLAlchemy and Alembic
-2. Tenant budgets and cost enforcement
-3. Multi-provider routing for OpenAI, Gemini, and Anthropic
-4. Retry and fallback engine
-5. Eval runners and reports
-6. Streamlit dashboard
-7. Docker, CI, and Cloud Run deployment guides
+1. Replace in-memory circuit, limiter, and audit stores with Redis/Postgres adapters.
+2. Add concrete OpenAI, Anthropic, Bedrock, Gemini, and Ollama providers.
+3. Add structured-output validation with one self-correction retry.
+4. Add semantic cache backed by Redis vector search or pgvector.
+5. Add CI, deployment manifests, and a dashboard for latency and cost analytics.
