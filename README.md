@@ -28,6 +28,7 @@ flowchart LR
 - Context-window protection with long-context fallback routing
 - Circuit-breaker fallback when an upstream model fails
 - Usage, cost, latency, audit, and fallback tracking
+- Tenant daily/monthly monetary budgets with warning, hard-stop, override, and per-model caps
 - Prometheus text metrics at `GET /metrics`
 - One-command local environment with gateway, Redis, and Prometheus
 
@@ -113,6 +114,43 @@ Invoke-RestMethod `
 | Acme Insurance | `demo-key-acme` | `mock-fast`, `mock-quality`, `mock-long-context` | 120 RPM / 50k TPM |
 | Globex Finance | `demo-key-globex` | `mock-fast` | 30 RPM / 5k TPM |
 
+Admin-only demo APIs use `Authorization: Bearer demo-key-admin`.
+
+## Tenant Budgets
+
+Configure a budget:
+
+```powershell
+$body = @{
+  monthly_budget_usd = 100
+  daily_budget_usd = 10
+  warning_threshold = 0.8
+  hard_stop_threshold = 1.0
+  model_spending_limits_usd = @{
+    "mock-fast" = 25
+  }
+} | ConvertTo-Json -Depth 5
+
+Invoke-RestMethod `
+  -Uri "http://127.0.0.1:8000/v1/admin/tenants/acme-insurance/budget" `
+  -Method Put `
+  -Headers @{ Authorization = "Bearer demo-key-admin" } `
+  -ContentType "application/json" `
+  -Body $body
+```
+
+Check consumption:
+
+```powershell
+Invoke-RestMethod `
+  -Uri "http://127.0.0.1:8000/v1/tenant/budget" `
+  -Headers @{ Authorization = "Bearer demo-key-acme" }
+```
+
+When a tenant crosses its hard threshold, chat requests return
+`402 Payment Required` with `tenant_budget_exceeded`. If a model-specific cap is exhausted,
+the fallback policy can route to the next allowed model.
+
 ## Resilience Demo
 
 The mock provider can simulate an upstream outage so the fallback lane is easy to test:
@@ -140,7 +178,8 @@ python -m ruff check .
 ## Roadmap
 
 1. Replace in-memory circuit, limiter, and audit stores with Redis/Postgres adapters.
-2. Add concrete OpenAI, Anthropic, Bedrock, Gemini, and Ollama providers.
-3. Add structured-output validation with one self-correction retry.
-4. Add semantic cache backed by Redis vector search or pgvector.
-5. Add CI, deployment manifests, and a dashboard for latency and cost analytics.
+2. Persist tenant budgets, usage, and audit records in Postgres.
+3. Add concrete OpenAI, Anthropic, Bedrock, Gemini, and Ollama providers.
+4. Add structured-output validation with one self-correction retry.
+5. Add semantic cache backed by Redis vector search or pgvector.
+6. Add CI, deployment manifests, and a dashboard for latency and cost analytics.

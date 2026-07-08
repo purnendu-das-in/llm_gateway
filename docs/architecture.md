@@ -13,6 +13,7 @@ FastAPI Gateway
     +--> Prompt validation
     +--> PII masking
     +--> Model routing
+    +--> Budget enforcement
     +--> Mock provider
     +--> Usage and audit logging
     |
@@ -20,4 +21,6 @@ FastAPI Gateway
 LLM Provider
 ```
 
-The current implementation uses in-memory tenant, usage, and audit stores so the API is easy to run locally. The next milestone will replace those stores with Postgres-backed repositories.
+The current implementation uses in-memory tenant, budget, usage, and audit stores so the API is
+easy to run locally. The next milestone will replace those stores with Postgres-backed
+repositories.

@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 
 from app.audit.audit_logger import audit_store, usage_store
+from app.budgets.budget_store import budget_store
 from app.main import app
 from app.observability.metrics import gateway_metrics
 from app.resilience.circuit_breaker import circuit_breaker
@@ -15,6 +16,7 @@ def setup_function() -> None:
     circuit_breaker.clear()
     token_rate_limiter.clear()
     gateway_metrics.clear()
+    budget_store.clear()
 
 
 def test_health_check() -> None:

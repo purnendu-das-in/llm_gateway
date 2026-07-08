@@ -63,14 +63,52 @@ class InMemoryUsageStore:
             if record.tenant_id == tenant_id
         ]
 
+    def records_for_tenant(
+        self,
+        tenant_id: str,
+        start_at: datetime | None = None,
+        end_at: datetime | None = None,
+    ) -> list[UsageRecord]:
+        start_at = _as_utc(start_at)
+        end_at = _as_utc(end_at)
+        records = [record for record in self._records if record.tenant_id == tenant_id]
+        if start_at is not None:
+            records = [record for record in records if record.created_at >= start_at]
+        if end_at is not None:
+            records = [record for record in records if record.created_at <= end_at]
+        return records
+
     def count_for_tenant(self, tenant_id: str) -> int:
         return len(self.for_tenant(tenant_id))
 
-    def cost_for_tenant(self, tenant_id: str) -> float:
+    def cost_for_tenant(
+        self,
+        tenant_id: str,
+        start_at: datetime | None = None,
+        end_at: datetime | None = None,
+    ) -> float:
         return round(
-            sum(record.cost_usd for record in self._records if record.tenant_id == tenant_id),
+            sum(
+                record.cost_usd
+                for record in self.records_for_tenant(
+                    tenant_id=tenant_id,
+                    start_at=start_at,
+                    end_at=end_at,
+                )
+            ),
             6,
         )
+
+    def cost_by_model_for_tenant(
+        self,
+        tenant_id: str,
+        start_at: datetime | None = None,
+        end_at: datetime | None = None,
+    ) -> dict[str, float]:
+        totals: dict[str, float] = {}
+        for record in self.records_for_tenant(tenant_id, start_at, end_at):
+            totals[record.model_used] = round(totals.get(record.model_used, 0) + record.cost_usd, 6)
+        return totals
 
     def clear(self) -> None:
         self._records.clear()
@@ -109,3 +147,11 @@ class InMemoryAuditStore:
 
 usage_store = InMemoryUsageStore()
 audit_store = InMemoryAuditStore()
+
+
+def _as_utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)

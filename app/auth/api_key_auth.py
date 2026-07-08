@@ -6,6 +6,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from app.auth.tenant_context import TenantContext
 
 security = HTTPBearer(auto_error=False)
+ADMIN_API_KEYS = {"demo-key-admin"}
 
 DEMO_TENANTS = {
     "demo-key-acme": TenantContext(
@@ -41,3 +42,20 @@ def authenticate_tenant(
             detail={"error": "invalid_api_key", "message": "API key is not recognized."},
         )
     return tenant
+
+
+def authenticate_admin(
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(security)],
+) -> str:
+    if credentials is None or credentials.scheme.lower() != "bearer":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"error": "missing_api_key", "message": "Bearer admin API key is required."},
+        )
+
+    if credentials.credentials not in ADMIN_API_KEYS:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"error": "forbidden", "message": "Admin API key is required."},
+        )
+    return "admin"

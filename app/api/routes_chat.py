@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from app.audit.audit_logger import audit_store, usage_store
 from app.auth.api_key_auth import authenticate_tenant
 from app.auth.tenant_context import TenantContext
+from app.budgets.budget_service import check_budget_for_request
 from app.budgets.cost_calculator import estimate_cost_usd
 from app.evals.validators import run_basic_evals
 from app.observability.metrics import gateway_metrics
@@ -62,6 +63,12 @@ def create_chat_completion(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             detail={"error": "context_window_exceeded", "reason": str(exc)},
         ) from exc
+    budget_decision = check_budget_for_request(tenant.tenant_id)
+    if not budget_decision.allowed:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail={"error": budget_decision.error, "reason": budget_decision.reason},
+        )
 
     started = perf_counter()
     provider_response, model_used, fallback_used = _complete_with_fallbacks(
@@ -130,7 +137,18 @@ def _complete_with_fallbacks(
     selected_model: str,
 ) -> tuple[ProviderResponse, str, bool]:
     last_error: ProviderError | None = None
+    last_budget_error: str | None = None
     for candidate in fallback_candidates(selected_model, tenant):
+        budget_decision = check_budget_for_request(tenant.tenant_id, candidate.model_name)
+        if not budget_decision.allowed:
+            if budget_decision.error == "tenant_budget_exceeded":
+                raise HTTPException(
+                    status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                    detail={"error": budget_decision.error, "reason": budget_decision.reason},
+                )
+            last_budget_error = budget_decision.reason
+            continue
+
         try:
             response = candidate.provider.complete(request, sanitized_prompt)
         except ProviderError as exc:
@@ -141,6 +159,12 @@ def _complete_with_fallbacks(
 
         circuit_breaker.record_success(candidate.model_name)
         return response, candidate.model_name, candidate.model_name != selected_model
+
+    if last_budget_error is not None and last_error is None:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail={"error": "model_budget_exceeded", "reason": last_budget_error},
+        )
 
     raise HTTPException(
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
